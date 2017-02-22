@@ -30,3 +30,5 @@ with tf.Session() as sess:
 
 coord.request_stop()
 coord.join(threads)
+
+# Progression -> read_data -> create_or_find_bottleneck -> train_last_layer

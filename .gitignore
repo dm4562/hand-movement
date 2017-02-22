@@ -93,3 +93,6 @@ ENV/
 .DS_Store
 
 weka-3-8-1/
+
+# Data directory
+data/
