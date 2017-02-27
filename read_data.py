@@ -38,9 +38,9 @@ from os.path import basename
 # Progression -> read_data -> create_or_find_bottleneck -> train_last_layer
 
 
-def get_image_names(data_dir):
+def get_sample_paths(data_dir):
     data_files = ['hand1', 'hand2']
-
+    data_samples = []
     for file in data_files:
         image_path = "{}/images/{}".format(data_dir, file)
         csv_path = "{}/{}.csv".format(data_dir, file)
@@ -51,11 +51,12 @@ def get_image_names(data_dir):
         with open(csv_path, mode='r') as file:
             reader = csv.reader(file)
             for index, row in enumerate(reader):
-                label = row[1::]
+                label = [int(x) for x in row[1::]]
                 samples[index] = (samples[index], label)
 
-        for sample in samples:
-            print(sample)
+        data_samples.append(samples)
+
+    return data_samples
 
 if __name__ == '__main__':
     get_image_names(getcwd() + '/data')
