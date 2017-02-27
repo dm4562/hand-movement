@@ -1,5 +1,6 @@
 import tensorflow as tf
 from tensorflow import TensorArray as ta
+import csv
 
 from os import walk, getcwd, listdir
 from os.path import basename
@@ -36,18 +37,25 @@ from os.path import basename
 
 # Progression -> read_data -> create_or_find_bottleneck -> train_last_layer
 
+
 def get_image_names(data_dir):
-    data_files = ['hand1']
+    data_files = ['hand1', 'hand2']
 
     for file in data_files:
-        path = "{}/images/{}".format(data_dir, file)
+        image_path = "{}/images/{}".format(data_dir, file)
+        csv_path = "{}/{}.csv".format(data_dir, file)
 
-        samples = listdir(path)
-        samples = ["{}/{}".format(path, x) for x in sorted(samples)]
-        for i in range(50):
-            print(samples[i])
+        samples = listdir(image_path)
+        samples = ["{}/{}".format(image_path, x) for x in sorted(samples)]
+
+        with open(csv_path, mode='r') as file:
+            reader = csv.reader(file)
+            for index, row in enumerate(reader):
+                label = row[1::]
+                samples[index] = (samples[index], label)
+
+        for sample in samples:
+            print(sample)
 
 if __name__ == '__main__':
     get_image_names(getcwd() + '/data')
-    
-        
