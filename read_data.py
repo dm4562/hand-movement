@@ -43,20 +43,27 @@ def get_sample_paths(data_dir):
     data_samples = []
     for file in data_files:
         image_path = "{}/images/{}".format(data_dir, file)
-        csv_path = "{}/{}.csv".format(data_dir, file)
+        csv_path = "{}/normalized_{}.csv".format(data_dir, file)
 
         samples = listdir(image_path)
         samples = ["{}/{}".format(image_path, x) for x in sorted(samples)]
 
         with open(csv_path, mode='r') as file:
             reader = csv.reader(file)
+
+            # Skip the header
+            next(reader, None)
+
             for index, row in enumerate(reader):
-                label = [int(x) for x in row[1::]]
+                label = [float(x) for x in row[1::]]
                 samples[index] = (samples[index], label)
+
+            for sample in samples:
+                print(sample)
 
         data_samples.append(samples)
 
     return data_samples
 
 if __name__ == '__main__':
-    get_image_names(getcwd() + '/data')
+    get_sample_paths(getcwd() + '/data')
