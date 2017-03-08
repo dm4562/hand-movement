@@ -48,20 +48,6 @@ BATCH_SIZE = 5
 test_size = 5
 
 
-def split_test_train(data_samples):
-    train, test = [], []
-
-    for (i, point) in data_samples:
-        i = i % 10
-
-        if i < 7:
-            train.append(point)
-        else:
-            test.append(point)
-
-    return (train, test)
-
-
 def get_data_labels(data_dir):
     data_files = ['hand1', 'hand2']
     data_samples = []
@@ -87,8 +73,8 @@ def get_data_labels(data_dir):
     # for sample in data_samples:
     #     print(sample)
 
-    labels = [label for _, label in data_samples[:20]]
-    filenames = [f for f, _ in data_samples[:20]]
+    labels = [label for _, label in data_samples]
+    filenames = [f for f, _ in data_samples]
     return filenames, labels
 
 if __name__ == '__main__':
@@ -139,11 +125,12 @@ if __name__ == '__main__':
 
         print("from the train set")
         for i in range(20):
-            print(sess.run(train_label_batch))
+            # print(sess.run(train_label_batch))
+            print(sess.run(train_image_batch))
 
         print("from the test set")
-        for i in range(10):
-            print(sess.run(test_label_batch))
+        # for i in range(10):
+        # print(sess.run(test_label_batch))
 
         coord.request_stop()
         coord.join(threads=threads)
