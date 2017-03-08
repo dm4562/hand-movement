@@ -1,7 +1,10 @@
 import tensorflow as tf
 from tensorflow import TensorArray as ta
-import csv
+from tensorflow.python.framework import ops
+from tensorflow.python.framework import dtypes
 
+import csv
+import random
 from os import walk, getcwd, listdir
 from os.path import basename
 
@@ -37,8 +40,29 @@ from os.path import basename
 
 # Progression -> read_data -> create_or_find_bottleneck -> train_last_layer
 
+NUM_CHANNELS = 3
+IMAGE_HEIGHT, IMAGE_WIDTH = 435, 336
+BATCH_SIZE = 5
 
-def get_sample_paths(data_dir):
+# test_size = int(len(filenames) * 0.2)
+test_size = 5
+
+
+def split_test_train(data_samples):
+    train, test = [], []
+
+    for (i, point) in data_samples:
+        i = i % 10
+
+        if i < 7:
+            train.append(point)
+        else:
+            test.append(point)
+
+    return (train, test)
+
+
+def get_data_labels(data_dir):
     data_files = ['hand1', 'hand2']
     data_samples = []
     for file in data_files:
@@ -58,12 +82,69 @@ def get_sample_paths(data_dir):
                 label = [float(x) for x in row[1::]]
                 samples[index] = (samples[index], label)
 
-            for sample in samples:
-                print(sample)
+        data_samples.extend(samples)
 
-        data_samples.append(samples)
+    # for sample in data_samples:
+    #     print(sample)
 
-    return data_samples
+    labels = [label for _, label in data_samples[:20]]
+    filenames = [f for f, _ in data_samples[:20]]
+    return filenames, labels
 
 if __name__ == '__main__':
-    get_sample_paths(getcwd() + '/data')
+    filenames, labels = get_data_labels(getcwd() + '/data')
+    all_images = ops.convert_to_tensor(filenames, dtype=dtypes.string)
+    all_labels = ops.convert_to_tensor(labels, dtype=dtypes.float32)
+
+    partitions = [0] * len(filenames)
+
+    partitions[:test_size] = [1] * test_size
+    random.shuffle(partitions)
+
+    train_images, test_images = tf.dynamic_partition(all_images, partitions, 2)
+    train_labels, test_labels = tf.dynamic_partition(all_labels, partitions, 2)
+
+    train_input_queue = tf.train.slice_input_producer(
+        [train_images, train_labels], shuffle=False)
+    test_input_queue = tf.train.slice_input_producer(
+        [test_images, test_labels], shuffle=False)
+
+    # Process string tensor and label tensor into an image and label
+    file_content = tf.read_file(train_input_queue[0])
+    train_image = tf.image.decode_jpeg(file_content, NUM_CHANNELS)
+    train_label = train_input_queue[1]
+
+    file_content = tf.read_file(test_input_queue[0])
+    test_image = tf.image.decode_jpeg(file_content, NUM_CHANNELS)
+    test_label = test_input_queue[1]
+
+    train_image.set_shape([IMAGE_HEIGHT, IMAGE_WIDTH, NUM_CHANNELS])
+    test_image.set_shape([IMAGE_HEIGHT, IMAGE_WIDTH, NUM_CHANNELS])
+
+    train_image_batch, train_label_batch = tf.train.batch(
+        [train_image, train_label], batch_size=BATCH_SIZE)
+    test_image_batch, test_label_batch = tf.train.batch(
+        [test_image, test_label], batch_size=BATCH_SIZE)
+
+    print("INPUT PIPELINE READY")
+
+    with tf.Session() as sess:
+        # Initialize all variables
+        # sess.run(tf.initialize_all_variables())
+        tf.global_variables_initializer().run()
+
+        # Initialize the queue threads to start the shovel data
+        coord = tf.train.Coordinator()
+        threads = tf.train.start_queue_runners(coord=coord)
+
+        print("from the train set")
+        for i in range(20):
+            print(sess.run(train_label_batch))
+
+        print("from the test set")
+        for i in range(10):
+            print(sess.run(test_label_batch))
+
+        coord.request_stop()
+        coord.join(threads=threads)
+        sess.close()
