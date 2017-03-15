@@ -62,7 +62,8 @@ BATCH_SIZE = 5
 
 DATA_URL = 'http://download.tensorflow.org/models/image/imagenet/inception-2015-12-05.tgz'
 FLAGS = {
-    'model_dir': '/tmp/imagenet'
+    'model_dir': '/tmp/imagenet',
+    'final_tensor_name': 'final_result'
 }
 
 # test_size = int(len(filenames) * 0.2)
@@ -74,9 +75,9 @@ BOTTLENECK_DIRECTORY = '/tmp/bottleneck'
 # Defined in retraining.py
 BOTTLENECK_TENSOR_NAME = 'pool_3/_reshape:0'
 BOTTLENECK_TENSOR_SIZE = 2048
-MODEL_INPUT_WIDTH = 299
-MODEL_INPUT_HEIGHT = 299
-MODEL_INPUT_DEPTH = 3
+# MODEL_INPUT_WIDTH = 299
+# MODEL_INPUT_HEIGHT = 299
+# MODEL_INPUT_DEPTH = 3
 JPEG_DATA_TENSOR_NAME = 'DecodeJpeg/contents:0'
 RESIZED_INPUT_TENSOR_NAME = 'ResizeBilinear:0'
 MAX_NUM_IMAGES_PER_CLASS = 2 ** 27 - 1  # ~134M
@@ -297,18 +298,6 @@ def cache_bottlenecks(sess, image_lists, bottleneck_dir, jpeg_data_tensor, bottl
     """
     how_many_bottlenecks = 0
     ensure_dir_exists(bottleneck_dir)
-    # for label_name, label_lists in image_lists.items():
-    #     for category in ['training', 'testing', 'validation']:
-    #         category_list = label_lists[category]
-    #         for index, unused_base_name in enumerate(category_list):
-    #             get_or_create_bottleneck(sess, image_lists, label_name, index,
-    #                                      image_dir, category, bottleneck_dir,
-    #                                      jpeg_data_tensor, bottleneck_tensor)
-
-    #             how_many_bottlenecks += 1
-    #             if how_many_bottlenecks % 100 == 0:
-    #                 print(str(how_many_bottlenecks) +
-    #                       ' bottleneck files created.')
 
     for image_folder, image, label in image_list:
         get_or_create_bottleneck(sess, image, image_folder, bottleneck_dir,
@@ -319,7 +308,91 @@ def cache_bottlenecks(sess, image_lists, bottleneck_dir, jpeg_data_tensor, bottl
             print(str(how_many_bottlenecks) +
                   ' bottleneck files created.')
 
-if __name__ == '__main__':
+
+def variable_summaries(var):
+    """Attach a lot of summaries to a Tensor (for TensorBoard visualization)."""
+    with tf.name_scope('summaries'):
+        mean = tf.reduce_mean(var)
+        tf.summary.scalar('mean', mean)
+        with tf.name_scope('stddev'):
+        stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
+        tf.summary.scalar('stddev', stddev)
+        tf.summary.scalar('max', tf.reduce_max(var))
+        tf.summary.scalar('min', tf.reduce_min(var))
+        tf.summary.histogram('histogram', var)
+
+
+def add_final_training_ops(class_count, final_tensor_name, bottleneck_tensor):
+    """Adds a new softmax and fully-connected layer for training.
+
+    We need to retrain the top layer to identify our new classes, so this function
+    adds the right operations to the graph, along with some variables to hold the
+    weights, and then sets up all the gradients for the backward pass.
+
+    The set up for the softmax and fully-connected layers is based on:
+    https://tensorflow.org/versions/master/tutorials/mnist/beginners/index.html
+
+    Args:
+        class_count: Integer of how many categories of things we're trying to
+        recognize.
+        final_tensor_name: Name string for the new final node that produces results.
+        bottleneck_tensor: The output of the main CNN graph.
+
+    Returns:
+        The tensors for the training and cross entropy results, and tensors for the
+        bottleneck input and ground truth input.
+    """
+    with tf.name_scope('input'):
+        bottleneck_input = tf.placeholder_with_default(
+            bottleneck_tensor, shape=[None, BOTTLENECK_TENSOR_SIZE],
+            name='BottleneckInputPlaceholder')
+
+        ground_truth_input = tf.placeholder(tf.float32,
+                                            [None, class_count],
+                                            name='GroundTruthInput')
+
+    # Organizing the following ops as `final_training_ops` so they're easier
+    # to see in TensorBoard
+    layer_name = 'final_training_ops'
+    with tf.name_scope(layer_name):
+        with tf.name_scope('weights'):
+        layer_weights = tf.Variable(tf.truncated_normal(
+            [BOTTLENECK_TENSOR_SIZE, class_count], stddev=0.001), name='final_weights')
+            variable_summaries(layer_weights)
+
+        with tf.name_scope('biases'):
+        layer_biases = tf.Variable(
+            tf.zeros([class_count]), name='final_biases')
+            variable_summaries(layer_biases)
+
+        with tf.name_scope('Wx_plus_b'):
+            logits = tf.add(tf.matmul(bottleneck_input,
+                                      layer_weights), layer_biases)
+            tf.summary.histogram('pre_activations', logits)
+
+    # final_tensor = tf.nn.softmax(logits, name=final_tensor_name)
+    final_tensor = logits
+    tf.summary.histogram('activations', final_tensor)
+
+    with tf.name_scope('cost'):
+        # cross_entropy = tf.nn.softmax_cross_entropy_with_logits(
+        #     labels=ground_truth_input, logits=logits)
+        # error = tf.pow(final_tensor - ground_truth_input, 2)
+
+        with tf.name_scope('total'):
+            cross_entropy_mean = tf.reduce_mean(cross_entropy)
+
+    tf.summary.scalar('cost', cross_entropy_mean)
+
+    with tf.name_scope('train'):
+        train_step = tf.train.GradientDescentOptimizer(FLAGS['learning_rate']).minimize(
+            cross_entropy_mean)
+
+    return (train_step, cross_entropy_mean, bottleneck_input, ground_truth_input,
+            final_tensor)
+
+
+def main():
     # Set up the pre-trained graph.
     maybe_download_and_extract()
     graph, bottleneck_tensor, jpeg_data_tensor, resized_image_tensor = create_inception_graph()
@@ -331,6 +404,12 @@ if __name__ == '__main__':
     # on disk.
     cache_bottlenecks(sess, image_list, BOTTLENECK_DIRECTORY,
                       jpeg_data_tensor, bottleneck_tensor)
+
+    # Add the new layer that we'll be training.
+    (train_step, cross_entropy, bottleneck_input, ground_truth_input,
+     final_tensor) = add_final_training_ops(len(image_lists.keys()),
+                                            FLAGS['final_tensor_name'],
+                                            bottleneck_tensor)
 
     # filenames, labels = get_data_labels(getcwd() + '/data')
     # all_images = ops.convert_to_tensor(filenames, dtype=dtypes.string)
@@ -392,3 +471,7 @@ if __name__ == '__main__':
     #     coord.request_stop()
     #     coord.join(threads=threads)
     #     sess.close()
+
+
+if __name__ == '__main__':
+    main()
