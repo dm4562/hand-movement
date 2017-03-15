@@ -62,6 +62,18 @@ FLAGS = {
 # test_size = int(len(filenames) * 0.2)
 test_size = 5
 data_files = ['hand1', 'hand2']
+ROOT_IMAGE_DIRECTORY = ''
+BOTTLENECK_DIRECTORY = '/tmp/bottleneck'
+
+# Defined in retraining.py
+BOTTLENECK_TENSOR_NAME = 'pool_3/_reshape:0'
+BOTTLENECK_TENSOR_SIZE = 2048
+MODEL_INPUT_WIDTH = 299
+MODEL_INPUT_HEIGHT = 299
+MODEL_INPUT_DEPTH = 3
+JPEG_DATA_TENSOR_NAME = 'DecodeJpeg/contents:0'
+RESIZED_INPUT_TENSOR_NAME = 'ResizeBilinear:0'
+MAX_NUM_IMAGES_PER_CLASS = 2 ** 27 - 1  # ~134M
 
 
 def get_data_labels(data_dir):
@@ -130,7 +142,7 @@ def create_inception_graph():
     """
     with tf.Session() as sess:
         model_filename = os.path.join(
-            FLAGS.model_dir, 'classify_image_graph_def.pb')
+            FLAGS['model_dir'], 'classify_image_graph_def.pb')
 
         with gfile.FastGFile(model_filename, 'rb') as f:
             graph_def = tf.GraphDef()
@@ -143,7 +155,60 @@ def create_inception_graph():
     return sess.graph, bottleneck_tensor, jpeg_data_tensor, resized_input_tensor
 
 
-def get_or_create_bottleneck(sess, image_name, image_dir, bottleneck_dir,
+def ensure_dir_exists(dir_name):
+    """Makes sure the folder exists on disk.
+
+    Args:
+        dir_name: Path string to the folder we want to create.
+    """
+    if not os.path.exists(dir_name):
+        os.makedirs(dir_name)
+
+
+def get_image_path(image_name, image_folder, image_dir=ROOT_IMAGE_DIRECTORY):
+    return os.path.join(image_dir, image_folder, image_name)
+
+
+def get_bottleneck_path(image_name, image_folder, bottleneck_dir=BOTTLENECK_DIRECTORY):
+    return os.path.join(bottleneck_dir, image_folder, image_name)
+
+
+def run_bottleneck_on_image(sess, image_data, image_data_tensor, bottleneck_tensor):
+    """Runs inference on an image to extract the 'bottleneck' summary layer.
+
+    Args:
+        sess: Current active TensorFlow Session.
+        image_data: String of raw JPEG data.
+        image_data_tensor: Input data layer in the graph.
+        bottleneck_tensor: Layer before the final softmax.
+
+    Returns:
+        Numpy array of bottleneck values.
+    """
+    bottleneck_values = sess.run(
+        bottleneck_tensor,
+        {image_data_tensor: image_data})
+    bottleneck_values = np.squeeze(bottleneck_values)
+    return bottleneck_values
+
+
+def create_bottleneck_file(sess, bottleneck_path, image_name, image_folder,
+                           jpeg_data_tensor, bottleneck_tensor):
+    print('Creating bottleneck at ' + bottleneck_path)
+    image_path = get_image_path(image_name, image_folder)
+    if not gfile.Exists(image_path):
+        tf.logging.fatal('File does not exist %s', image_path)
+
+    image_data = gfile.FastGFile(image_path, 'rb').read()
+    bottleneck_values = run_bottleneck_on_image(
+        sess, image_data, jpeg_data_tensor, bottleneck_tensor)
+
+    bottleneck_string = ','.join(str(x) for x in bottleneck_values)
+    with open(bottleneck_path, 'w') as bottleneck_file:
+        bottleneck_file.write(bottleneck_string)
+
+
+def get_or_create_bottleneck(sess, image_name, image_folder, bottleneck_dir,
                              jpeg_data_tensor, bottleneck_tensor):
     """Retrieves or calculates bottleneck values for an image.
 
@@ -167,16 +232,15 @@ def get_or_create_bottleneck(sess, image_name, image_dir, bottleneck_dir,
     Returns:
         Numpy array of values produced by the bottleneck layer for the image.
     """
-    label_lists = image_lists[label_name]
-    sub_dir = label_lists['dir']
+    # label_lists = image_lists[label_name]
+    # sub_dir = label_lists['dir']
     sub_dir_path = os.path.join(bottleneck_dir, sub_dir)
     ensure_dir_exists(sub_dir_path)
-    bottleneck_path = get_bottleneck_path(
-        image_lists, label_name, index, bottleneck_dir, category)
+    bottleneck_path = get_bottleneck_path(image_name, image_folder)
 
     if not os.path.exists(bottleneck_path):
-        create_bottleneck_file(bottleneck_path, image_lists, label_name, index,
-                               image_dir, category, sess, jpeg_data_tensor, bottleneck_tensor)
+        create_bottleneck_file(sess, bottleneck_path, image_name,
+                               image_folder, jpeg_data_tensor, bottleneck_tensor)
 
     with open(bottleneck_path, 'r') as bottleneck_file:
         bottleneck_string = bottleneck_file.read()
@@ -189,8 +253,8 @@ def get_or_create_bottleneck(sess, image_name, image_dir, bottleneck_dir,
         did_hit_error = True
 
     if did_hit_error:
-        create_bottleneck_file(bottleneck_path, image_lists, label_name, index,
-                               image_dir, category, sess, jpeg_data_tensor, bottleneck_tensor)
+        create_bottleneck_file(sess, bottleneck_path, image_name,
+                               image_folder, jpeg_data_tensor, bottleneck_tensor)
 
         with open(bottleneck_path, 'r') as bottleneck_file:
             bottleneck_string = bottleneck_file.read()
@@ -227,29 +291,38 @@ def cache_bottlenecks(sess, image_lists, image_dir, bottleneck_dir,
     """
     how_many_bottlenecks = 0
     ensure_dir_exists(bottleneck_dir)
-    for label_name, label_lists in image_lists.items():
-        for category in ['training', 'testing', 'validation']:
-            category_list = label_lists[category]
-            for index, unused_base_name in enumerate(category_list):
-                get_or_create_bottleneck(sess, image_lists, label_name, index,
-                                         image_dir, category, bottleneck_dir,
-                                         jpeg_data_tensor, bottleneck_tensor)
+    # for label_name, label_lists in image_lists.items():
+    #     for category in ['training', 'testing', 'validation']:
+    #         category_list = label_lists[category]
+    #         for index, unused_base_name in enumerate(category_list):
+    #             get_or_create_bottleneck(sess, image_lists, label_name, index,
+    #                                      image_dir, category, bottleneck_dir,
+    #                                      jpeg_data_tensor, bottleneck_tensor)
 
-                how_many_bottlenecks += 1
-                if how_many_bottlenecks % 100 == 0:
-                    print(str(how_many_bottlenecks) +
-                          ' bottleneck files created.')
+    #             how_many_bottlenecks += 1
+    #             if how_many_bottlenecks % 100 == 0:
+    #                 print(str(how_many_bottlenecks) +
+    #                       ' bottleneck files created.')
 
+    for image_folder, image, label in image_list:
+        get_or_create_bottleneck(sess, image, image_folder, bottleneck_dir,
+                                 jpeg_data_tensor, bottleneck_tensor)
+
+        how_many_bottlenecks += 1
+        if how_many_bottlenecks % 100 == 0:
+            print(str(how_many_bottlenecks) +
+                  ' bottleneck files created.')
 
 if __name__ == '__main__':
     # Set up the pre-trained graph.
-    # maybe_download_and_extract()
-    # graph, bottleneck_tensor, jpeg_data_tensor, resized_image_tensor = create_inception_graph()
+    maybe_download_and_extract()
+    graph, bottleneck_tensor, jpeg_data_tensor, resized_image_tensor = create_inception_graph()
 
-    # sess = tf.Session()
+    sess = tf.Session()
 
     # Make sure that we've calculated the 'bottleneck' image summaries and cached them
     # on disk.
+    cache_bottlenecks(sess, image_list, )
 
     filenames, labels = get_data_labels(getcwd() + '/data')
     all_images = ops.convert_to_tensor(filenames, dtype=dtypes.string)
