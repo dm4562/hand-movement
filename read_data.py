@@ -1,3 +1,7 @@
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import tensorflow as tf
 
 from tensorflow import TensorArray as ta
@@ -15,6 +19,7 @@ import sys
 import tarfile
 import struct
 
+from six.moves import urllib
 from os import walk, getcwd, listdir
 from os.path import basename
 
@@ -56,12 +61,12 @@ BATCH_SIZE = 5
 
 DATA_URL = 'http://download.tensorflow.org/models/image/imagenet/inception-2015-12-05.tgz'
 FLAGS = {
-    'model_dir': '/tmp/bottleneck'
+    'model_dir': '/tmp/imagenet'
 }
 
 # test_size = int(len(filenames) * 0.2)
 test_size = 5
-data_files = ['hand1', 'hand2']
+data_folders = ['hand1', 'hand2']
 ROOT_IMAGE_DIRECTORY = ''
 BOTTLENECK_DIRECTORY = '/tmp/bottleneck'
 
@@ -78,14 +83,15 @@ MAX_NUM_IMAGES_PER_CLASS = 2 ** 27 - 1  # ~134M
 
 def get_data_labels(data_dir):
     data_samples = []
-    for file in data_files:
-        image_path = "{}/images/{}".format(data_dir, file)
-        csv_path = "{}/normalized_{}.csv".format(data_dir, file)
+    for folder in data_folders:
+        image_path = "{}/images/{}".format(data_dir, folder)
+        csv_path = "{}/normalized_{}.csv".format(data_dir, folder)
 
         samples = listdir(image_path)
-        samples = ["{}/{}".format(image_path, x) for x in sorted(samples)]
+        # samples = ["{}/{}".format(image_path, x) for x in sorted(samples)]
+        samples = [(folder, x) for x in sorted(samples)]
 
-        with open(csv_path, mode='r') as file:
+        with open(csv_path, 'r') as file:
             reader = csv.reader(file)
 
             # Skip the header
@@ -93,16 +99,18 @@ def get_data_labels(data_dir):
 
             for index, row in enumerate(reader):
                 label = [float(x) for x in row[1::]]
-                samples[index] = (samples[index], label)
+                folder, image = samples[index]
+                samples[index] = (folder, image, label)
 
         data_samples.extend(samples)
 
     # for sample in data_samples:
-    #     print(sample)
+        # print(sample)
 
-    labels = [label for _, label in data_samples]
-    filenames = [f for f, _ in data_samples]
-    return filenames, labels
+    # labels = [label for _, _, label in data_samples]
+    # filenames = [f for f, _, _ in data_samples]
+    # return filenames, labels
+    return data_samples
 
 
 def maybe_download_and_extract():
@@ -123,9 +131,7 @@ def maybe_download_and_extract():
                              (filename, float(count * block_size) / float(total_size) * 100.0))
             sys.stdout.flush()
 
-            filepath, _ = urllib.request.urlretrieve(DATA_URL,
-                                                     filepath,
-                                                     _progress)
+        filepath, _ = urllib.request.urlretrieve(DATA_URL, filepath, _progress)
         print()
         statinfo = os.stat(filepath)
         print('Successfully downloaded', filename, statinfo.st_size, 'bytes.')
@@ -318,69 +324,69 @@ if __name__ == '__main__':
     maybe_download_and_extract()
     graph, bottleneck_tensor, jpeg_data_tensor, resized_image_tensor = create_inception_graph()
 
-    sess = tf.Session()
+    # sess = tf.Session()
 
     # Make sure that we've calculated the 'bottleneck' image summaries and cached them
     # on disk.
-    cache_bottlenecks(sess, image_list, )
+    # cache_bottlenecks(sess, image_list, )
 
-    filenames, labels = get_data_labels(getcwd() + '/data')
-    all_images = ops.convert_to_tensor(filenames, dtype=dtypes.string)
-    all_labels = ops.convert_to_tensor(labels, dtype=dtypes.float32)
+    # filenames, labels = get_data_labels(getcwd() + '/data')
+    # all_images = ops.convert_to_tensor(filenames, dtype=dtypes.string)
+    # all_labels = ops.convert_to_tensor(labels, dtype=dtypes.float32)
 
-    partitions = [0] * len(filenames)
+    # partitions = [0] * len(filenames)
 
-    print("Filenames: ", filenames)
-    print("labels: ", labels)
+    # print("Filenames: ", filenames)
+    # print("labels: ", labels)
 
-    partitions[:test_size] = [1] * test_size
-    random.shuffle(partitions)
+    # partitions[:test_size] = [1] * test_size
+    # random.shuffle(partitions)
 
-    train_images, test_images = tf.dynamic_partition(all_images, partitions, 2)
-    train_labels, test_labels = tf.dynamic_partition(all_labels, partitions, 2)
+    # train_images, test_images = tf.dynamic_partition(all_images, partitions, 2)
+    # train_labels, test_labels = tf.dynamic_partition(all_labels, partitions, 2)
 
-    train_input_queue = tf.train.slice_input_producer(
-        [train_images, train_labels], shuffle=False)
-    test_input_queue = tf.train.slice_input_producer(
-        [test_images, test_labels], shuffle=False)
+    # train_input_queue = tf.train.slice_input_producer(
+    #     [train_images, train_labels], shuffle=False)
+    # test_input_queue = tf.train.slice_input_producer(
+    #     [test_images, test_labels], shuffle=False)
 
-    # Process string tensor and label tensor into an image and label
-    file_content = tf.read_file(train_input_queue[0])
-    train_image = tf.image.decode_jpeg(file_content, NUM_CHANNELS)
-    train_label = train_input_queue[1]
+    # # Process string tensor and label tensor into an image and label
+    # file_content = tf.read_file(train_input_queue[0])
+    # train_image = tf.image.decode_jpeg(file_content, NUM_CHANNELS)
+    # train_label = train_input_queue[1]
 
-    file_content = tf.read_file(test_input_queue[0])
-    test_image = tf.image.decode_jpeg(file_content, NUM_CHANNELS)
-    test_label = test_input_queue[1]
+    # file_content = tf.read_file(test_input_queue[0])
+    # test_image = tf.image.decode_jpeg(file_content, NUM_CHANNELS)
+    # test_label = test_input_queue[1]
 
-    train_image.set_shape([IMAGE_HEIGHT, IMAGE_WIDTH, NUM_CHANNELS])
-    test_image.set_shape([IMAGE_HEIGHT, IMAGE_WIDTH, NUM_CHANNELS])
+    # train_image.set_shape([IMAGE_HEIGHT, IMAGE_WIDTH, NUM_CHANNELS])
+    # test_image.set_shape([IMAGE_HEIGHT, IMAGE_WIDTH, NUM_CHANNELS])
 
-    train_image_batch, train_label_batch = tf.train.batch(
-        [train_image, train_label], batch_size=BATCH_SIZE)
-    test_image_batch, test_label_batch = tf.train.batch(
-        [test_image, test_label], batch_size=BATCH_SIZE)
+    # train_image_batch, train_label_batch = tf.train.batch(
+    #     [train_image, train_label], batch_size=BATCH_SIZE)
+    # test_image_batch, test_label_batch = tf.train.batch(
+    #     [test_image, test_label], batch_size=BATCH_SIZE)
 
-    print("INPUT PIPELINE READY")
+    # print("INPUT PIPELINE READY")
 
-    with tf.Session() as sess:
-        # Initialize all variables
-        # sess.run(tf.initialize_all_variables())
-        tf.global_variables_initializer().run()
+    # with tf.Session() as sess:
+    #     # Initialize all variables
+    #     # sess.run(tf.initialize_all_variables())
+    #     tf.global_variables_initializer().run()
 
-        # Initialize the queue threads to start the shovel data
-        coord = tf.train.Coordinator()
-        threads = tf.train.start_queue_runners(coord=coord)
+    #     # Initialize the queue threads to start the shovel data
+    #     coord = tf.train.Coordinator()
+    #     threads = tf.train.start_queue_runners(coord=coord)
 
-        print("from the train set")
-        for i in range(20):
-            # print(sess.run(train_label_batch))
-            print(sess.run(train_image_batch))
+    #     print("from the train set")
+    #     for i in range(20):
+    #         # print(sess.run(train_label_batch))
+    #         print(sess.run(train_image_batch))
 
-        print("from the test set")
-        for i in range(10):
-            print(sess.run(test_label_batch))
+    #     print("from the test set")
+    #     for i in range(10):
+    #         print(sess.run(test_label_batch))
 
-        coord.request_stop()
-        coord.join(threads=threads)
-        sess.close()
+    #     coord.request_stop()
+    #     coord.join(threads=threads)
+    #     sess.close()
