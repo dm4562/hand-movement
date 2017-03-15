@@ -18,6 +18,7 @@ import os.path
 import sys
 import tarfile
 import struct
+import numpy as np
 
 from six.moves import urllib
 from os import walk, getcwd, listdir
@@ -67,7 +68,7 @@ FLAGS = {
 # test_size = int(len(filenames) * 0.2)
 test_size = 5
 data_folders = ['hand1', 'hand2']
-ROOT_IMAGE_DIRECTORY = ''
+ROOT_IMAGE_DIRECTORY = '/Users/dhruvmehra/Projects/tensorflow_stuff/research/data'
 BOTTLENECK_DIRECTORY = '/tmp/bottleneck'
 
 # Defined in retraining.py
@@ -172,7 +173,7 @@ def ensure_dir_exists(dir_name):
 
 
 def get_image_path(image_name, image_folder, image_dir=ROOT_IMAGE_DIRECTORY):
-    return os.path.join(image_dir, image_folder, image_name)
+    return os.path.join(image_dir, 'images', image_folder, image_name)
 
 
 def get_bottleneck_path(image_name, image_folder, bottleneck_dir=BOTTLENECK_DIRECTORY):
@@ -240,8 +241,8 @@ def get_or_create_bottleneck(sess, image_name, image_folder, bottleneck_dir,
     """
     # label_lists = image_lists[label_name]
     # sub_dir = label_lists['dir']
-    sub_dir_path = os.path.join(bottleneck_dir, sub_dir)
-    ensure_dir_exists(sub_dir_path)
+    image_folder_path = os.path.join(bottleneck_dir, image_folder)
+    ensure_dir_exists(image_folder_path)
     bottleneck_path = get_bottleneck_path(image_name, image_folder)
 
     if not os.path.exists(bottleneck_path):
@@ -272,8 +273,7 @@ def get_or_create_bottleneck(sess, image_name, image_folder, bottleneck_dir,
     return bottleneck_values
 
 
-def cache_bottlenecks(sess, image_lists, image_dir, bottleneck_dir,
-                      jpeg_data_tensor, bottleneck_tensor):
+def cache_bottlenecks(sess, image_lists, bottleneck_dir, jpeg_data_tensor, bottleneck_tensor):
     """Ensures all the training, testing, and validation bottlenecks are cached.
 
     Because we're likely to read the same image multiple times (if there are no
@@ -324,11 +324,13 @@ if __name__ == '__main__':
     maybe_download_and_extract()
     graph, bottleneck_tensor, jpeg_data_tensor, resized_image_tensor = create_inception_graph()
 
-    # sess = tf.Session()
+    image_list = get_data_labels(getcwd() + '/data')
+    sess = tf.Session()
 
     # Make sure that we've calculated the 'bottleneck' image summaries and cached them
     # on disk.
-    # cache_bottlenecks(sess, image_list, )
+    cache_bottlenecks(sess, image_list, BOTTLENECK_DIRECTORY,
+                      jpeg_data_tensor, bottleneck_tensor)
 
     # filenames, labels = get_data_labels(getcwd() + '/data')
     # all_images = ops.convert_to_tensor(filenames, dtype=dtypes.string)
