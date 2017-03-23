@@ -35,7 +35,7 @@ FLAGS = {
     'model_dir': '/tmp/imagenet',
     'final_tensor_name': 'final_result',
     'summaries_dir': '/tmp/retrain_logs',
-    'training_steps': 4000,
+    'training_steps': 400,
     'train_batch_size': 100,
     'validation_batch_size': 100,
     'test_batch_size': -1,
@@ -43,6 +43,8 @@ FLAGS = {
     'learning_rate': 0.001,
     'how_many_training_steps': 4000,
     'final_tensor_name': 'final_result'
+    'output_graph': '/tmp/output_graph.pb',
+    'output_labels': '/tmp/output_labels.txt'
 }
 
 data_folders = ['hand1', 'hand2']
@@ -407,7 +409,7 @@ def add_final_training_ops(class_count, final_tensor_name, bottleneck_tensor):
             tf.summary.histogram('pre_activations', logits)
 
     # final_tensor = tf.nn.softmax(logits, name=final_tensor_name)
-    final_tensor = logits
+    final_tensor = tf.Variable(logits, name=final_tensor_name)
     tf.summary.histogram('activations', final_tensor)
 
     with tf.name_scope('cost'):
@@ -548,10 +550,10 @@ def main(_):
     output_graph_def = graph_util.convert_variables_to_constants(
         sess, graph.as_graph_def(), [FLAGS['final_tensor_name']])
 
-    with gfile.FastGFile(FLAGS.output_graph, 'wb') as f:
+    with gfile.FastGFile(FLAGS['output_graph'], 'wb') as f:
         f.write(output_graph_def.SerializeToString())
 
-    with gfile.FastGFile(FLAGS.output_labels, 'w') as f:
+    with gfile.FastGFile(FLAGS['output_labels'], 'w') as f:
         f.write('\n'.join(image_lists.keys()) + '\n')
 
 if __name__ == '__main__':
