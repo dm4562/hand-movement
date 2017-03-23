@@ -41,7 +41,8 @@ FLAGS = {
     'test_batch_size': -1,
     'eval_step_interval': 10,
     'learning_rate': 0.001,
-    'how_many_training_steps': 4000
+    'how_many_training_steps': 4000,
+    'final_tensor_name': 'final_result'
 }
 
 data_folders = ['hand1', 'hand2']
@@ -545,7 +546,7 @@ def main(_):
     # Write out the trained graph and labels with the weights stored as
     # constants.
     output_graph_def = graph_util.convert_variables_to_constants(
-        sess, graph.as_graph_def(), [FLAGS.final_tensor_name])
+        sess, graph.as_graph_def(), [FLAGS['final_tensor_name']])
 
     with gfile.FastGFile(FLAGS.output_graph, 'wb') as f:
         f.write(output_graph_def.SerializeToString())
