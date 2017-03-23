@@ -331,15 +331,14 @@ def get_random_cached_bottlenecks(sess, image_dict, how_many, category, jpeg_dat
             filenames.append(image_path)
     else:
         # Retrieve all bottlenecks.
-        for label_index, label_name in enumerate(image_dict.keys()):
-            for image_index, image_name in enumerate(image_dict[category]):
-                image_path = get_image_path(image_name, image_folder)
-                bottleneck = get_or_create_bottleneck(sess, image_name, image_folder,
-                                                      BOTTLENECK_DIRECTORY, jpeg_data_tensor,
-                                                      bottleneck_tensor)
-                bottlenecks.append(bottleneck)
-                ground_truths.append(label)
-                filenames.append(image_path)
+        for image_folder, image_name, label in image_dict[category]:
+            image_path = get_image_path(image_name, image_folder)
+            bottleneck = get_or_create_bottleneck(sess, image_name, image_folder,
+                                                  BOTTLENECK_DIRECTORY, jpeg_data_tensor,
+                                                  bottleneck_tensor)
+            bottlenecks.append(bottleneck)
+            ground_truths.append(label)
+            filenames.append(image_path)
 
     return bottlenecks, ground_truths, filenames
 
