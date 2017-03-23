@@ -413,7 +413,7 @@ def add_final_training_ops(class_count, final_tensor_name, bottleneck_tensor):
     with tf.name_scope('cost'):
         # cross_entropy = tf.nn.softmax_cross_entropy_with_logits(
         #     labels=ground_truth_input, logits=logits)
-        error = tf.sqrt(tf.pow(final_tensor - ground_truth_input, 2))
+        error = tf.pow(final_tensor - ground_truth_input, 2)
 
         with tf.name_scope('total'):
             error_mean = tf.reduce_mean(error)
@@ -535,10 +535,8 @@ def main(_):
     # We've completed all our training, so run a final test evaluation on
     # some new images we haven't used before.
     test_bottlenecks, test_ground_truth, test_filenames = (
-        get_random_cached_bottlenecks(sess, image_lists, FLAGS.test_batch_size,
-                                      'testing', FLAGS.bottleneck_dir,
-                                      FLAGS.image_dir, jpeg_data_tensor,
-                                      bottleneck_tensor))
+        get_random_cached_bottlenecks(sess, image_dict, FLAGS['test_batch_size'],
+                                      'test', jpeg_data_tensor, bottleneck_tensor))
     test_accuracy, predictions = sess.run([evaluation_step, prediction],
                                           feed_dict={bottleneck_input: test_bottlenecks,
                                                      ground_truth_input: test_ground_truth})
