@@ -468,8 +468,7 @@ def main(_):
 
     # Add the new layer that we'll be training.
     (train_step, error_mean, bottleneck_input, ground_truth_input,
-     final_tensor) = add_final_training_ops(len(image_lists.keys()),
-                                            FLAGS['final_tensor_name'],
+     final_tensor) = add_final_training_ops(5, FLAGS['final_tensor_name'],
                                             bottleneck_tensor)
 
     # Create the operations we need to evaluate the accuracy of our new layer.
