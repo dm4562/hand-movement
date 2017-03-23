@@ -19,42 +19,11 @@ import sys
 import tarfile
 import struct
 import numpy as np
+import random
 
 from six.moves import urllib
 from os import walk, getcwd, listdir
 from os.path import basename
-
-# features = tf.placeholder(tf.int32, shape=[5], name='datapoints')
-# timestamp = tf.placeholder(tf.int32, name='timestamp')
-# total = tf.reduce_sum(features, name='total')
-# printerop = tf.Print(total, [timestamp, features, total], name='printer')
-
-# def create_file_reader(filename_queue):
-#     reader = tf.TextLineReader(skip_header_lines=0)
-#     _, row = reader.read(filename_queue)
-#     defaults = [[0], [0], [0], [0], [0], [0]]
-#     timestamp, point_1, point_2, point_3, point_4, point_5 = tf.decode_csv(row, record_defaults=defaults)
-#     features = tf.stack([point_1, point_2, point_3, point_4, point_5])
-#     return timestamp, features
-
-# filenames = ['data/hand1.csv', 'data/hand2.csv']
-# filename_queue = tf.train.string_input_producer(filenames)
-# timestamp, features = create_file_reader(filename_queue)
-
-# with tf.Session() as sess:
-#     tf.global_variables_initializer().run()
-#     coord = tf.train.Coordinator()
-#     threads = tf.train.start_queue_runners(coord=coord)
-
-#     for i in range(10):
-#         time, points = sess.run([timestamp, features])
-#         print(points)
-#         # print(time)
-
-# coord.request_stop()
-# coord.join(threads)
-
-# Progression -> read_data -> create_or_find_bottleneck -> train_last_layer
 
 NUM_CHANNELS = 3
 IMAGE_HEIGHT, IMAGE_WIDTH = 435, 336
@@ -65,11 +34,13 @@ FLAGS = {
     'model_dir': '/tmp/imagenet',
     'final_tensor_name': 'final_result',
     'summaries_dir': '/tmp/retrain_logs',
-    'training_steps': 4000
+    'training_steps': 4000,
+    'train_batch_size': 100,
+    'validation_batch_size': 100,
+    'test_batch_size': -1,
+    'eval_step_interval': 10
 }
 
-# test_size = int(len(filenames) * 0.2)
-test_size = 5
 data_folders = ['hand1', 'hand2']
 ROOT_IMAGE_DIRECTORY = '/Users/dhruvmehra/Projects/tensorflow_stuff/research/data'
 BOTTLENECK_DIRECTORY = '/tmp/bottleneck'
@@ -77,9 +48,6 @@ BOTTLENECK_DIRECTORY = '/tmp/bottleneck'
 # Defined in retraining.py
 BOTTLENECK_TENSOR_NAME = 'pool_3/_reshape:0'
 BOTTLENECK_TENSOR_SIZE = 2048
-# MODEL_INPUT_WIDTH = 299
-# MODEL_INPUT_HEIGHT = 299
-# MODEL_INPUT_DEPTH = 3
 JPEG_DATA_TENSOR_NAME = 'DecodeJpeg/contents:0'
 RESIZED_INPUT_TENSOR_NAME = 'ResizeBilinear:0'
 MAX_NUM_IMAGES_PER_CLASS = 2 ** 27 - 1  # ~134M
@@ -114,7 +82,14 @@ def get_data_labels(data_dir):
     # labels = [label for _, _, label in data_samples]
     # filenames = [f for f, _, _ in data_samples]
     # return filenames, labels
-    return data_samples
+    random.shuffle(data_samples)
+    test_size = int(0.2 * len(data_samples))
+    data_dict = {
+        'test': data_samples[:test_size],
+        'train': data_samples[2 * test_size:],
+        'validate': data_samples[test_size: 2 * test_size]
+    }
+    return data_dict
 
 
 def maybe_download_and_extract():
@@ -276,7 +251,7 @@ def get_or_create_bottleneck(sess, image_name, image_folder, bottleneck_dir,
     return bottleneck_values
 
 
-def cache_bottlenecks(sess, image_lists, bottleneck_dir, jpeg_data_tensor, bottleneck_tensor):
+def cache_bottlenecks(sess, image_list, bottleneck_dir, jpeg_data_tensor, bottleneck_tensor):
     """Ensures all the training, testing, and validation bottlenecks are cached.
 
     Because we're likely to read the same image multiple times (if there are no
@@ -311,13 +286,69 @@ def cache_bottlenecks(sess, image_lists, bottleneck_dir, jpeg_data_tensor, bottl
                   ' bottleneck files created.')
 
 
+def get_random_cached_bottlenecks(sess, image_dict, how_many, category, jpeg_data_tensor,
+                                  bottleneck_tensor, bottleneck_dir=BOTTLENECK_DIRECTORY):
+    """Retrieves bottleneck values for cached images.
+
+    If no distortions are being applied, this function can retrieve the cached
+    bottleneck values directly from disk for images. It picks a random set of
+    images from the specified category.
+
+    Args:
+        sess: Current TensorFlow Session.
+        image_lists: Dictionary of training images for each label.
+        how_many: If positive, a random sample of this size will be chosen.
+        If negative, all bottlenecks will be retrieved.
+        category: Name string of which set to pull from - training, testing, or
+        validation.
+        bottleneck_dir: Folder string holding cached files of bottleneck values.
+        image_dir: Root folder string of the subfolders containing the training
+        images.
+        jpeg_data_tensor: The layer to feed jpeg image data into.
+        bottleneck_tensor: The bottleneck output layer of the CNN graph.
+
+    Returns:
+        List of bottleneck arrays, their corresponding ground truths, and the
+        relevant filenames.
+    """
+    bottlenecks = []
+    ground_truths = []
+    filenames = []
+    if how_many >= 0:
+        # Retrieve a random sample of bottlenecks.
+        for unused_i in range(how_many):
+            image_index = random.randrange(len(image_dict[category]))
+            image_folder, image_name, label = image_dict[category][image_index]
+            image_path = get_image_path(image_name, image_folder)
+            bottleneck = get_or_create_bottleneck(sess, image_name, image_folder,
+                                                  BOTTLENECK_DIRECTORY, jpeg_data_tensor,
+                                                  bottleneck_tensor)
+            bottlenecks.append(bottleneck)
+            ground_truths.append(label)
+            filenames.append(image_path)
+    else:
+        # Retrieve all bottlenecks.
+        for label_index, label_name in enumerate(image_dict.keys()):
+            for image_index, image_name in enumerate(image_dict[category]):
+                image_path = get_image_path(image_name, image_folder)
+                bottleneck = get_or_create_bottleneck(sess, image_name, image_folder,
+                                                      BOTTLENECK_DIRECTORY, jpeg_data_tensor,
+                                                      bottleneck_tensor)
+                bottlenecks.append(bottleneck)
+                ground_truths.append(label)
+                filenames.append(image_path)
+
+    return bottlenecks, ground_truths, filenames
+
+
 def variable_summaries(var):
     """Attach a lot of summaries to a Tensor (for TensorBoard visualization)."""
     with tf.name_scope('summaries'):
         mean = tf.reduce_mean(var)
         tf.summary.scalar('mean', mean)
         with tf.name_scope('stddev'):
-        stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
+            stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
+
         tf.summary.scalar('stddev', stddev)
         tf.summary.scalar('max', tf.reduce_max(var))
         tf.summary.scalar('min', tf.reduce_min(var))
@@ -358,13 +389,13 @@ def add_final_training_ops(class_count, final_tensor_name, bottleneck_tensor):
     layer_name = 'final_training_ops'
     with tf.name_scope(layer_name):
         with tf.name_scope('weights'):
-        layer_weights = tf.Variable(tf.truncated_normal(
-            [BOTTLENECK_TENSOR_SIZE, class_count], stddev=0.001), name='final_weights')
+            layer_weights = tf.Variable(tf.truncated_normal(
+                [BOTTLENECK_TENSOR_SIZE, class_count], stddev=0.001), name='final_weights')
             variable_summaries(layer_weights)
 
         with tf.name_scope('biases'):
-        layer_biases = tf.Variable(
-            tf.zeros([class_count]), name='final_biases')
+            layer_biases = tf.Variable(
+                tf.zeros([class_count]), name='final_biases')
             variable_summaries(layer_biases)
 
         with tf.name_scope('Wx_plus_b'):
@@ -419,21 +450,24 @@ def add_evaluation_step(result_tensor, ground_truth_tensor):
     return evaluation_step, prediction
 
 
-def main():
+def main(_):
     # Set up the pre-trained graph.
     maybe_download_and_extract()
     graph, bottleneck_tensor, jpeg_data_tensor, resized_image_tensor = create_inception_graph()
 
-    image_list = get_data_labels(getcwd() + '/data')
+    image_dict = get_data_labels(ROOT_IMAGE_DIRECTORY)
     sess = tf.Session()
 
     # Make sure that we've calculated the 'bottleneck' image summaries and cached them
     # on disk.
-    cache_bottlenecks(sess, image_list, BOTTLENECK_DIRECTORY,
-                      jpeg_data_tensor, bottleneck_tensor)
+    assert(len(image_dict['train']) > len(image_dict['test']))
+    assert(len(image_dict['test']) == len(image_dict['validate']))
+
+    cache_bottlenecks(sess, image_dict['train'] + image_dict['test'] + image_dict['validate'],
+                      BOTTLENECK_DIRECTORY, jpeg_data_tensor, bottleneck_tensor)
 
     # Add the new layer that we'll be training.
-    (train_step, cross_entropy, bottleneck_input, ground_truth_input,
+    (train_step, error_mean, bottleneck_input, ground_truth_input,
      final_tensor) = add_final_training_ops(len(image_lists.keys()),
                                             FLAGS['final_tensor_name'],
                                             bottleneck_tensor)
@@ -454,67 +488,71 @@ def main():
     init = tf.global_variables_initializer()
     sess.run(init)
 
-    # filenames, labels = get_data_labels(getcwd() + '/data')
-    # all_images = ops.convert_to_tensor(filenames, dtype=dtypes.string)
-    # all_labels = ops.convert_to_tensor(labels, dtype=dtypes.float32)
+    for i in range(FLAGS['training_steps']):
+        # Get a batch of input bottleneck values, either calculated fresh every time
+        # with distortions applied, or from the cache stored on disk.
 
-    # partitions = [0] * len(filenames)
+        train_bottlenecks, train_ground_truth, _ = get_random_cached_bottlenecks(
+            sess, image_dict, FLAGS['train_batch_size'], 'train',
+            jpeg_data_tensor, bottleneck_tensor)
 
-    # print("Filenames: ", filenames)
-    # print("labels: ", labels)
+        # Feed the bottlenecks and ground truth into the graph, and run a training
+        # step. Capture training summaries for TensorBoard with the `merged`
+        # op.
+        train_summary, _ = sess.run([merged, train_step],
+                                    feed_dict={bottleneck_input: train_bottlenecks,
+                                               ground_truth_input: train_ground_truth})
+        train_writer.add_summary(train_summary, i)
 
-    # partitions[:test_size] = [1] * test_size
-    # random.shuffle(partitions)
+        # Every so often, print out how well the graph is training.
+        is_last_step = (i + 1 == FLAGS.how_many_training_steps)
+        if (i % FLAGS['eval_step_interval']) == 0 or is_last_step:
+            train_accuracy, cross_entropy_value = sess.run(
+                [evaluation_step, error_mean], feed_dict={bottleneck_input: train_bottlenecks,
+                                                          ground_truth_input: train_ground_truth})
 
-    # train_images, test_images = tf.dynamic_partition(all_images, partitions, 2)
-    # train_labels, test_labels = tf.dynamic_partition(all_labels, partitions, 2)
+            print('%s: Step %d: Train accuracy = %.1f%%' %
+                  (datetime.now(), i, train_accuracy * 100))
+            print('%s: Step %d: Cross entropy = %f' %
+                  (datetime.now(), i, cross_entropy_value))
 
-    # train_input_queue = tf.train.slice_input_producer(
-    #     [train_images, train_labels], shuffle=False)
-    # test_input_queue = tf.train.slice_input_producer(
-    #     [test_images, test_labels], shuffle=False)
+            validation_bottlenecks, validation_ground_truth, _ = get_random_cached_bottlenecks(
+                sess, image_dict, FLAGS['validation_batch_size'], 'validate',
+                jpeg_data_tensor, bottleneck_tensor)
 
-    # # Process string tensor and label tensor into an image and label
-    # file_content = tf.read_file(train_input_queue[0])
-    # train_image = tf.image.decode_jpeg(file_content, NUM_CHANNELS)
-    # train_label = train_input_queue[1]
+            # Run a validation step and capture training summaries for TensorBoard
+            # with the `merged` op.
+            validation_summary, validation_accuracy = sess.run(
+                [merged, evaluation_step], feed_dict={bottleneck_input: validation_bottlenecks,
+                                                      ground_truth_input: validation_ground_truth})
+            validation_writer.add_summary(validation_summary, i)
+            print('%s: Step %d: Validation accuracy = %.1f%% (N=%d)' %
+                  (datetime.now(), i, validation_accuracy * 100,
+                   len(validation_bottlenecks)))
 
-    # file_content = tf.read_file(test_input_queue[0])
-    # test_image = tf.image.decode_jpeg(file_content, NUM_CHANNELS)
-    # test_label = test_input_queue[1]
+    # We've completed all our training, so run a final test evaluation on
+    # some new images we haven't used before.
+    test_bottlenecks, test_ground_truth, test_filenames = (
+        get_random_cached_bottlenecks(sess, image_lists, FLAGS.test_batch_size,
+                                      'testing', FLAGS.bottleneck_dir,
+                                      FLAGS.image_dir, jpeg_data_tensor,
+                                      bottleneck_tensor))
+    test_accuracy, predictions = sess.run([evaluation_step, prediction],
+                                          feed_dict={bottleneck_input: test_bottlenecks,
+                                                     ground_truth_input: test_ground_truth})
+    print('Final test accuracy = %.1f%% (N=%d)' % (
+        test_accuracy * 100, len(test_bottlenecks)))
 
-    # train_image.set_shape([IMAGE_HEIGHT, IMAGE_WIDTH, NUM_CHANNELS])
-    # test_image.set_shape([IMAGE_HEIGHT, IMAGE_WIDTH, NUM_CHANNELS])
+    # Write out the trained graph and labels with the weights stored as
+    # constants.
+    output_graph_def = graph_util.convert_variables_to_constants(
+        sess, graph.as_graph_def(), [FLAGS.final_tensor_name])
 
-    # train_image_batch, train_label_batch = tf.train.batch(
-    #     [train_image, train_label], batch_size=BATCH_SIZE)
-    # test_image_batch, test_label_batch = tf.train.batch(
-    #     [test_image, test_label], batch_size=BATCH_SIZE)
+    with gfile.FastGFile(FLAGS.output_graph, 'wb') as f:
+        f.write(output_graph_def.SerializeToString())
 
-    # print("INPUT PIPELINE READY")
-
-    # with tf.Session() as sess:
-    #     # Initialize all variables
-    #     # sess.run(tf.initialize_all_variables())
-    #     tf.global_variables_initializer().run()
-
-    #     # Initialize the queue threads to start the shovel data
-    #     coord = tf.train.Coordinator()
-    #     threads = tf.train.start_queue_runners(coord=coord)
-
-    #     print("from the train set")
-    #     for i in range(20):
-    #         # print(sess.run(train_label_batch))
-    #         print(sess.run(train_image_batch))
-
-    #     print("from the test set")
-    #     for i in range(10):
-    #         print(sess.run(test_label_batch))
-
-    #     coord.request_stop()
-    #     coord.join(threads=threads)
-    #     sess.close()
-
+    with gfile.FastGFile(FLAGS.output_labels, 'w') as f:
+        f.write('\n'.join(image_lists.keys()) + '\n')
 
 if __name__ == '__main__':
-    main()
+    tf.app.run(main=main, argv=[sys.argv[0]])
