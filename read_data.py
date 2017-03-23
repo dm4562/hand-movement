@@ -63,7 +63,9 @@ BATCH_SIZE = 5
 DATA_URL = 'http://download.tensorflow.org/models/image/imagenet/inception-2015-12-05.tgz'
 FLAGS = {
     'model_dir': '/tmp/imagenet',
-    'final_tensor_name': 'final_result'
+    'final_tensor_name': 'final_result',
+    'summaries_dir': '/tmp/retrain_logs',
+    'training_steps': 4000
 }
 
 # test_size = int(len(filenames) * 0.2)
@@ -377,19 +379,44 @@ def add_final_training_ops(class_count, final_tensor_name, bottleneck_tensor):
     with tf.name_scope('cost'):
         # cross_entropy = tf.nn.softmax_cross_entropy_with_logits(
         #     labels=ground_truth_input, logits=logits)
-        # error = tf.pow(final_tensor - ground_truth_input, 2)
+        error = tf.sqrt(tf.pow(final_tensor - ground_truth_input, 2))
 
         with tf.name_scope('total'):
-            cross_entropy_mean = tf.reduce_mean(cross_entropy)
+            error_mean = tf.reduce_mean(error)
 
-    tf.summary.scalar('cost', cross_entropy_mean)
+    tf.summary.scalar('cost', error_mean)
 
     with tf.name_scope('train'):
         train_step = tf.train.GradientDescentOptimizer(FLAGS['learning_rate']).minimize(
-            cross_entropy_mean)
+            error_mean)
 
-    return (train_step, cross_entropy_mean, bottleneck_input, ground_truth_input,
+    return (train_step, error_mean, bottleneck_input, ground_truth_input,
             final_tensor)
+
+
+def add_evaluation_step(result_tensor, ground_truth_tensor):
+    """Inserts the operations we need to evaluate the accuracy of our results.
+
+    Args:
+        result_tensor: The new final node that produces results.
+        ground_truth_tensor: The node we feed ground truth data
+        into.
+
+    Returns:
+        Tuple of (evaluation step, prediction).
+    """
+    with tf.name_scope('accuracy'):
+        with tf.name_scope('correct_prediction'):
+            prediction = tf.argmax(result_tensor, 1)
+            correct_prediction = tf.equal(
+                prediction, tf.argmax(ground_truth_tensor, 1))
+
+        with tf.name_scope('accuracy'):
+            evaluation_step = tf.reduce_mean(
+                tf.cast(correct_prediction, tf.float32))
+
+    tf.summary.scalar('accuracy', evaluation_step)
+    return evaluation_step, prediction
 
 
 def main():
@@ -410,6 +437,22 @@ def main():
      final_tensor) = add_final_training_ops(len(image_lists.keys()),
                                             FLAGS['final_tensor_name'],
                                             bottleneck_tensor)
+
+    # Create the operations we need to evaluate the accuracy of our new layer.
+    evaluation_step, prediction = add_evaluation_step(
+        final_tensor, ground_truth_input)
+
+    # Merge all the summaries and write them out to /tmp/retrain_logs (by
+    # default)
+    merged = tf.summary.merge_all()
+    train_writer = tf.summary.FileWriter(FLAGS['summaries_dir'] + '/train',
+                                         sess.graph)
+    validation_writer = tf.summary.FileWriter(
+        FLAGS['summaries_dir'] + '/validation')
+
+    # Set up all our weights to their initial default values.
+    init = tf.global_variables_initializer()
+    sess.run(init)
 
     # filenames, labels = get_data_labels(getcwd() + '/data')
     # all_images = ops.convert_to_tensor(filenames, dtype=dtypes.string)
