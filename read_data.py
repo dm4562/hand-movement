@@ -38,7 +38,8 @@ FLAGS = {
     'train_batch_size': 100,
     'validation_batch_size': 100,
     'test_batch_size': -1,
-    'eval_step_interval': 10
+    'eval_step_interval': 10,
+    'learning_rate': 0.001
 }
 
 data_folders = ['hand1', 'hand2']
