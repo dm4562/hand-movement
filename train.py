@@ -42,7 +42,7 @@ FLAGS = {
     'eval_step_interval': 10,
     'learning_rate': 0.001,
     'how_many_training_steps': 4000,
-    'final_tensor_name': 'final_result'
+    'final_tensor_name': 'final_result',
     'output_graph': '/tmp/output_graph.pb',
     'output_labels': '/tmp/output_labels.txt'
 }
@@ -409,7 +409,8 @@ def add_final_training_ops(class_count, final_tensor_name, bottleneck_tensor):
             tf.summary.histogram('pre_activations', logits)
 
     # final_tensor = tf.nn.softmax(logits, name=final_tensor_name)
-    final_tensor = tf.Variable(logits, name=final_tensor_name)
+    # final_tensor = tf.Variable(logits.initialized_value(), name=final_tensor_name)
+    final_tensor = tf.identity(logits, name=final_tensor_name)
     tf.summary.histogram('activations', final_tensor)
 
     with tf.name_scope('cost'):
@@ -554,7 +555,7 @@ def main(_):
         f.write(output_graph_def.SerializeToString())
 
     with gfile.FastGFile(FLAGS['output_labels'], 'w') as f:
-        f.write('\n'.join(image_lists.keys()) + '\n')
+        f.write('\n'.join(image_dict.keys()) + '\n')
 
 if __name__ == '__main__':
     tf.app.run(main=main, argv=[sys.argv[0]])
