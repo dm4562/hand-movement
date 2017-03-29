@@ -48,7 +48,7 @@ FLAGS = {
 }
 
 data_folders = ['hand1', 'hand2']
-ROOT_IMAGE_DIRECTORY = '/media/qk/5201fffc-e4c8-4469-838d-fded83a2e8fe/muscle_rec'
+ROOT_IMAGE_DIRECTORY = '/data/muscle_rec'
 BOTTLENECK_DIRECTORY = '/tmp/bottleneck'
 
 # Defined in retraining.py
