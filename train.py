@@ -41,14 +41,13 @@ FLAGS = {
     'test_batch_size': -1,
     'eval_step_interval': 10,
     'learning_rate': 0.001,
-    'how_many_training_steps': 4000,
     'final_tensor_name': 'final_result',
     'output_graph': '/tmp/output_graph.pb',
     'output_labels': '/tmp/output_labels.txt'
 }
 
 data_folders = ['hand1', 'hand2']
-ROOT_IMAGE_DIRECTORY = '/media/qk/5201fffc-e4c8-4469-838d-fded83a2e8fe/muscle_rec'
+ROOT_IMAGE_DIRECTORY = '/data/muscle_rec'
 BOTTLENECK_DIRECTORY = '/tmp/bottleneck'
 
 # Defined in retraining.py
@@ -512,7 +511,7 @@ def main(_):
         train_writer.add_summary(train_summary, i)
 
         # Every so often, print out how well the graph is training.
-        is_last_step = (i + 1 == FLAGS['how_many_training_steps'])
+        is_last_step = (i + 1 == FLAGS['training_steps'])
         if (i % FLAGS['eval_step_interval']) == 0 or is_last_step:
             abs_difference_mean, error_function_value = sess.run(
                 [evaluation_step, error_mean], feed_dict={bottleneck_input: train_bottlenecks,
