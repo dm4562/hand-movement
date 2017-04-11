@@ -413,15 +413,15 @@ def add_final_training_ops(class_count, final_tensor_name, bottleneck_tensor):
     final_tensor = tf.identity(logits, name=final_tensor_name)
     tf.summary.histogram('activations', final_tensor)
 
-    with tf.name_scope('cost'):
+    with tf.name_scope('error'):
         # cross_entropy = tf.nn.softmax_cross_entropy_with_logits(
         #     labels=ground_truth_input, logits=logits)
-        error = tf.pow(final_tensor - ground_truth_input, 2)
+        error = tf.pow(tf.subtract(final_tensor, ground_truth_input), 2)
 
         with tf.name_scope('total'):
             error_mean = tf.reduce_mean(error)
 
-    tf.summary.scalar('cost', error_mean)
+    tf.summary.scalar('error', error_mean)
 
     with tf.name_scope('train'):
         train_step = tf.train.GradientDescentOptimizer(FLAGS['learning_rate']).minimize(
@@ -443,14 +443,16 @@ def add_evaluation_step(result_tensor, ground_truth_tensor):
         Tuple of (evaluation step, prediction).
     """
     with tf.name_scope('accuracy'):
-        with tf.name_scope('correct_prediction'):
-            prediction = tf.argmax(result_tensor, 1)
-            correct_prediction = tf.equal(
-                prediction, tf.argmax(ground_truth_tensor, 1))
+        with tf.name_scope('error'):
+            # prediction = tf.argmax(result_tensor, 1)
+            # error = tf.equal(
+            #     prediction, tf.argmax(ground_truth_tensor, 1))
+            error = tf.abs(tf.subtract(
+                result_tensor, ground_truth_tensor))
 
         with tf.name_scope('accuracy'):
             evaluation_step = tf.reduce_mean(
-                tf.cast(correct_prediction, tf.float32))
+                tf.cast(error, tf.float32))
 
     tf.summary.scalar('accuracy', evaluation_step)
     return evaluation_step, prediction
@@ -512,14 +514,14 @@ def main(_):
         # Every so often, print out how well the graph is training.
         is_last_step = (i + 1 == FLAGS['how_many_training_steps'])
         if (i % FLAGS['eval_step_interval']) == 0 or is_last_step:
-            train_accuracy, cross_entropy_value = sess.run(
+            abs_difference_mean, error_function_value = sess.run(
                 [evaluation_step, error_mean], feed_dict={bottleneck_input: train_bottlenecks,
                                                           ground_truth_input: train_ground_truth})
 
-            print('%s: Step %d: Train accuracy = %.1f%%' %
-                  (datetime.now(), i, train_accuracy * 100))
-            print('%s: Step %d: Cross entropy = %f' %
-                  (datetime.now(), i, cross_entropy_value))
+            print('%s: Step %d: Test mean absolute difference value = %.1f%%' %
+                  (datetime.now(), i, abs_difference_mean * 100))
+            print('%s: Step %d: Error function value = %f' %
+                  (datetime.now(), i, error_function_value))
 
             validation_bottlenecks, validation_ground_truth, _ = get_random_cached_bottlenecks(
                 sess, image_dict, FLAGS['validation_batch_size'], 'validate',
@@ -527,12 +529,12 @@ def main(_):
 
             # Run a validation step and capture training summaries for TensorBoard
             # with the `merged` op.
-            validation_summary, validation_accuracy = sess.run(
+            validation_summary, validation_mean_diff = sess.run(
                 [merged, evaluation_step], feed_dict={bottleneck_input: validation_bottlenecks,
                                                       ground_truth_input: validation_ground_truth})
             validation_writer.add_summary(validation_summary, i)
-            print('%s: Step %d: Validation accuracy = %.1f%% (N=%d)' %
-                  (datetime.now(), i, validation_accuracy * 100,
+            print('%s: Step %d: Validation mean absolute difference value = %.1f%% (N=%d)' %
+                  (datetime.now(), i, validation_mean_diff * 100,
                    len(validation_bottlenecks)))
 
     # We've completed all our training, so run a final test evaluation on
@@ -540,11 +542,11 @@ def main(_):
     test_bottlenecks, test_ground_truth, test_filenames = (
         get_random_cached_bottlenecks(sess, image_dict, FLAGS['test_batch_size'],
                                       'test', jpeg_data_tensor, bottleneck_tensor))
-    test_accuracy, predictions = sess.run([evaluation_step, prediction],
+    test_abs_diff, predictions = sess.run([evaluation_step, prediction],
                                           feed_dict={bottleneck_input: test_bottlenecks,
                                                      ground_truth_input: test_ground_truth})
-    print('Final test accuracy = %.1f%% (N=%d)' % (
-        test_accuracy * 100, len(test_bottlenecks)))
+    print('Final test absolute difference = %.1f%% (N=%d)' % (
+        test_abs_diff * 100, len(test_bottlenecks)))
 
     # Write out the trained graph and labels with the weights stored as
     # constants.
