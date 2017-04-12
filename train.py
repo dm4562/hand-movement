@@ -32,23 +32,23 @@ BATCH_SIZE = 5
 
 DATA_URL = 'http://download.tensorflow.org/models/image/imagenet/inception-2015-12-05.tgz'
 FLAGS = {
-    'model_dir': '/tmp/imagenet',
+    'model_dir': '/data/muscle_rec/imagenet',
     'final_tensor_name': 'final_result',
     'summaries_dir': '/tmp/retrain_logs',
-    'training_steps': 400,
+    'training_steps': 40000,
     'train_batch_size': 100,
     'validation_batch_size': 100,
     'test_batch_size': -1,
     'eval_step_interval': 10,
     'learning_rate': 0.001,
     'final_tensor_name': 'final_result',
-    'output_graph': '/tmp/output_graph.pb',
-    'output_labels': '/tmp/output_labels.txt'
+    'output_graph': '/data/muscle_rec/output_graph.pb',
+    'output_labels': '/data/muscle_rec/output_labels.txt'
 }
 
 data_folders = ['hand1', 'hand2']
 ROOT_IMAGE_DIRECTORY = '/data/muscle_rec'
-BOTTLENECK_DIRECTORY = '/tmp/bottleneck'
+BOTTLENECK_DIRECTORY = '/data/muscle_rec/bottleneck'
 
 # Defined in retraining.py
 BOTTLENECK_TENSOR_NAME = 'pool_3/_reshape:0'
@@ -442,19 +442,19 @@ def add_evaluation_step(result_tensor, ground_truth_tensor):
         Tuple of (evaluation step, prediction).
     """
     with tf.name_scope('accuracy'):
-        with tf.name_scope('error'):
+        with tf.name_scope('difference'):
             # prediction = tf.argmax(result_tensor, 1)
             # error = tf.equal(
             #     prediction, tf.argmax(ground_truth_tensor, 1))
-            error = tf.abs(tf.subtract(
+            diff = tf.abs(tf.subtract(
                 result_tensor, ground_truth_tensor))
 
         with tf.name_scope('accuracy'):
             evaluation_step = tf.reduce_mean(
-                tf.cast(error, tf.float32))
+                tf.cast(diff, tf.float32))
 
     tf.summary.scalar('accuracy', evaluation_step)
-    return evaluation_step, prediction
+    return evaluation_step, diff
 
 
 def main(_):
@@ -517,8 +517,8 @@ def main(_):
                 [evaluation_step, error_mean], feed_dict={bottleneck_input: train_bottlenecks,
                                                           ground_truth_input: train_ground_truth})
 
-            print('%s: Step %d: Test mean absolute difference value = %.1f%%' %
-                  (datetime.now(), i, abs_difference_mean * 100))
+            print('%s: Step %d: Train mean absolute difference value = %f' %
+                  (datetime.now(), i, abs_difference_mean))
             print('%s: Step %d: Error function value = %f' %
                   (datetime.now(), i, error_function_value))
 
@@ -532,8 +532,8 @@ def main(_):
                 [merged, evaluation_step], feed_dict={bottleneck_input: validation_bottlenecks,
                                                       ground_truth_input: validation_ground_truth})
             validation_writer.add_summary(validation_summary, i)
-            print('%s: Step %d: Validation mean absolute difference value = %.1f%% (N=%d)' %
-                  (datetime.now(), i, validation_mean_diff * 100,
+            print('%s: Step %d: Validation mean absolute difference value = %f (N=%d)' %
+                  (datetime.now(), i, validation_mean_diff,
                    len(validation_bottlenecks)))
 
     # We've completed all our training, so run a final test evaluation on
@@ -544,8 +544,8 @@ def main(_):
     test_abs_diff, predictions = sess.run([evaluation_step, prediction],
                                           feed_dict={bottleneck_input: test_bottlenecks,
                                                      ground_truth_input: test_ground_truth})
-    print('Final test absolute difference = %.1f%% (N=%d)' % (
-        test_abs_diff * 100, len(test_bottlenecks)))
+    print('Final test absolute difference = %f (N=%d)' % (
+        test_abs_diff, len(test_bottlenecks)))
 
     # Write out the trained graph and labels with the weights stored as
     # constants.
