@@ -160,7 +160,7 @@ def load_saved_graph():
 
 def add_output_node(output_count, output_tensor_name, bottleneck_tensor, final_weights_tensor):
     with tf.name_scope('input'):
-        bottleneck_input = tf.placeholder_with_defaults(
+        bottleneck_input = tf.placeholder_with_default(
             bottleneck_tensor, shape=[None, BOTTLENECK_TENSOR_SIZE],
             name='BottleneckInputPlaceholder')
 
@@ -200,7 +200,7 @@ def main(_):
     print(bottlenecks)
 
     with tf.Session() as sess:
-        bottleneck_input, ground_truth_input, output = add_output_node(
+        bottleneck_input, ground_truth_input, final_weights, output = add_output_node(
             5, FLAGS['output_tensor_name'], bottleneck_tensor, weights)
 
 
