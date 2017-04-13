@@ -197,11 +197,16 @@ def main(_):
         bottlenecks.append(read_bottlenecks(
             bgraph, image, folder, jpeg_data_tensor, bottleneck_tensor))
 
-    print(bottlenecks)
+    # print(bottlenecks)
+    ground_truths = [label for _, _, label in image_dict]
 
     with tf.Session() as sess:
         bottleneck_input, ground_truth_input, output = add_output_node(
             5, FLAGS['output_tensor_name'], bottleneck_tensor, weights)
+
+        a = sess.run([output], feed_dict={bottleneck_input: bottlenecks,
+                                          ground_truth_input: ground_truths})
+        print(a)
 
 
 if __name__ == '__main__':
