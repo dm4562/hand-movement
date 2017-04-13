@@ -20,13 +20,13 @@ import tarfile
 import struct
 import numpy as np
 import random
+import train
 
 from datetime import datetime
 from six.moves import urllib
 from os import walk, getcwd, listdir
 from os.path import basename
 
-from train import cache_bottlenecks, maybe_download_and_extract, create_inception_graph
 
 FLAGS = {
     'output_graph': '/data/muscle_rec/output_graph.pb',
@@ -47,6 +47,17 @@ data_folders = ['hand1', 'hand2']
 
 
 def get_data_labels(data_dir):
+    """
+    Gets all the images in the data_dir and returns all the filepaths alongwith
+    the corresponding labels.
+
+    Args:
+        data_dir: The directory where the data is stored
+
+    Returns:
+        List[Tuple(str, str, float)]: The data to test on as a list of tuples 
+        where a tuple contains (folder_path, image_name, label).
+    """
     data_samples = []
     for folder in data_folders:
         image_path = "{}/images/{}".format(data_dir, folder)
@@ -69,31 +80,97 @@ def get_data_labels(data_dir):
 
         data_samples.extend(samples)
 
-    # for sample in data_samples:
-        # print(sample)
-
-    # labels = [label for _, _, label in data_samples]
-    # filenames = [f for f, _, _ in data_samples]
-    # return filenames, labels
     random.shuffle(data_samples)
-    data_dict = {
-        'test': data_samples
-    }
+    return data_samples
 
-    return data_dict
+
+def read_bottlenecks(bgraph, image_name, image_folder, jpeg_data_tensor,
+                     bottleneck_tensor):
+    """
+    Retrieves the cached bottleneck values for an image.
+
+    If a cached image does not exist on disk, recalculate the cached value and store
+    it on disk for future use.
+
+    Args:
+        bgraph: The graph used to calculate the bottleneck values.
+        image_name: Name of the image whose bottleneck is to be calculated.
+        image_folder: The directory where the image whose bottleneck
+        is to be calculated is located.
+        jpeg_data_tensor: The tensor to feed the loaded jpeg into.
+        bottleneck_tensor: The output tensor for the bottleneck values.
+
+    Returns:
+        Numpy array of values produced by the bottleneck layer for the image.
+    """
+    bottleneck_location = os.path.join(FLAGS['bottleneck_dir'], image_folder)
+    train.ensure_dir_exists(bottleneck_location)
+    bottleneck_path = os.path.join(
+        FLAGS['bottleneck_dir'], image_folder, image_name)
+
+    if not os.path.exists(bottleneck_path):
+        with tf.Session(graph=bgraph) as sess:
+            train.create_bottleneck_file(sess, bottleneck_path, image_name,
+                                         image_folder, jpeg_data_tensor, bottleneck_tensor)
+
+    with open(bottleneck_path, 'r') as bottleneck_file:
+        bottleneck_string = bottleneck_file.read()
+    did_hit_error = False
+
+    try:
+        bottleneck_values = [float(x) for x in bottleneck_string.split(',')]
+    except:
+        print("Invalid float found, recreating bottleneck")
+        did_hit_error = True
+
+    if did_hit_error:
+        with tf.Session(graph=bgraph) as sess:
+            train.create_bottleneck_file(sess, bottleneck_path, image_name,
+                                         image_folder, jpeg_data_tensor, bottleneck_tensor)
+
+        with open(bottleneck_path, 'r') as bottleneck_file:
+            bottleneck_string = bottleneck_file.read()
+
+        # Allow exceptions to propagate here, since they shouldn't happen after
+        # a fresh creation
+        bottleneck_values = [float(x) for x in bottleneck_string.split(',')]
+
+    return bottleneck_values
+
+
+def load_saved_graph():
+    """                                                           
+    Creates a graph from the saved output GraphDef file and return a graph                                             │
+    object.                                                       
+
+    Returns:                                                      
+        Graph holding the trained final tensor                    
+        final trained weights tensor                              
+    """
+    with tf.Session() as sess:
+        with gfile.FastGFile(FLAGS['output_graph'], 'rb') as file:
+            graph_def = ts.GraphDef()
+            graph_def.ParseFromString(file.read())
+
+    final_weights_tensor = tf.import_graph_def(graph_def, name='',
+                                               [FLAGS['final_tensor_name']])
+    return sess.graph, final_weights_tensor
 
 
 def main(_):
     # Set up the graph to calculate bottlenecks
-    maybe_download_and_extract()
-    bgraph, bottleneck_tensor, jpeg_data_tensor, resized_image_tensor = create_inception_graph()
+    train.maybe_download_and_extract()
+    bgraph, bottleneck_tensor, jpeg_data_tensor, resized_image_tensor = train.create_inception_graph()
 
     # Load the images to test on
     image_dict = get_data_labels(FLAGS['root_image_dir'])
-    sess = tf.Session(graph=bgraph)
 
-    cache_bottlenecks(sess, image_dict['test'], FLAGS[
-                      'bottleneck_dir'], jpeg_data_tensor, bottleneck_tensor)
+    # Make sure all the images are cached
+    with tf.Session(graph=bgraph) as sess:
+        train.cache_bottlenecks(sess, image_dict['test'], FLAGS[
+            'bottleneck_dir'], jpeg_data_tensor, bottleneck_tensor)
+
+    tgraph, output_tensor = load_saved_graph()
 
 if __name__ == '__main__':
     tf.app.run(main=main, argv=[sys.argv[0]])
