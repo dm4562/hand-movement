@@ -139,21 +139,20 @@ def read_bottlenecks(bgraph, image_name, image_folder, jpeg_data_tensor,
 
 
 def load_saved_graph():
-    """                                                           
-    Creates a graph from the saved output GraphDef file and return a graph                                             │
-    object.                                                       
+    """
+    Creates a graph from the saved output GraphDef file and return a graph
+    object.
 
-    Returns:                                                      
-        Graph holding the trained final tensor                    
-        final trained weights tensor                              
+    Returns:
+        Graph holding the trained final tensor
+        final trained weights tensor
     """
     with tf.Session() as sess:
         with gfile.FastGFile(FLAGS['output_graph'], 'rb') as file:
             graph_def = ts.GraphDef()
             graph_def.ParseFromString(file.read())
 
-    final_weights_tensor = tf.import_graph_def(graph_def, name='',
-                                               [FLAGS['final_tensor_name']])
+    final_weights_tensor = tf.import_graph_def(graph_def, name='', [FLAGS['final_tensor_name']])
     return sess.graph, final_weights_tensor
 
 
