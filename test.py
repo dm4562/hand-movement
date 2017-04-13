@@ -33,7 +33,8 @@ FLAGS = {
     'root_image_dir': '/data/muscle_rec',
     'bottleneck_dir': '/data/muscle_rec/bottleneck',
     'final_tensor_name': 'final_result',
-    'model_dir': '/data/muscle_rec/imagenet'
+    'model_dir': '/data/muscle_rec/imagenet',
+    'output_tensor_name': 'output_tensor'
 }
 
 # Constants required to load the pretrained CIFAR model
@@ -135,7 +136,7 @@ def read_bottlenecks(bgraph, image_name, image_folder, jpeg_data_tensor,
         # a fresh creation
         bottleneck_values = [float(x) for x in bottleneck_string.split(',')]
 
-    return bottleneck_values
+    return np.array(bottleneck_values)
 
 
 def load_saved_graph():
@@ -152,8 +153,28 @@ def load_saved_graph():
             graph_def = tf.GraphDef()
             graph_def.ParseFromString(file.read())
 
-    final_weights_tensor = tf.import_graph_def(graph_def, name='', return_elements=[FLAGS['final_tensor_name']])
+            final_weights_tensor = tf.import_graph_def(
+                graph_def, name='', return_elements=[FLAGS['final_tensor_name']])
     return sess.graph, final_weights_tensor
+
+
+def add_output_node(output_count, output_tensor_name, bottleneck_tensor, final_weights_tensor):
+    with tf.name_scope('input'):
+        bottleneck_input = tf.placeholder_with_defaults(
+            bottleneck_tensor, shape=[None, BOTTLENECK_TENSOR_SIZE],
+            name='BottleneckInputPlaceholder')
+
+        ground_truth_input = tf.placeholder(tf.float32, shape=[None, output_count],
+                                            name='GroundTruthInput')
+
+        final_weights = tf.placeholder(tf.float32, shape=[BOTTLENECK_TENSOR_SIZE, output_count],
+                                       name='TrainedWeightsPlaceholder')
+
+    with tf.name_scope('ouput'):
+        output = tf.matmul(bottleneck_input, final_weights,
+                           name=output_tensor_name)
+
+    return bottleneck_input, ground_truth_input, final_weights, output
 
 
 def main(_):
@@ -164,12 +185,24 @@ def main(_):
     # Load the images to test on
     image_dict = get_data_labels(FLAGS['root_image_dir'])
 
+    tgraph, weights = load_saved_graph()
+
     # Make sure all the images are cached
-    with tf.Session(graph=bgraph) as sess:
+    with tf.Session() as sess:
         train.cache_bottlenecks(sess, image_dict, FLAGS[
             'bottleneck_dir'], jpeg_data_tensor, bottleneck_tensor)
 
-    tgraph, output_tensor = load_saved_graph()
+    bottlenecks = []
+    for folder, image, label in image_dict:
+        bottlenecks.append(read_bottlenecks(
+            bgraph, image, folder, jpeg_data_tensor, bottleneck_tensor))
+
+    print(bottlenecks)
+
+    with tf.Session() as sess:
+        bottleneck_input, ground_truth_input, output = add_output_node(
+            5, FLAGS['output_tensor_name'], bottleneck_tensor, weights)
+
 
 if __name__ == '__main__':
     tf.app.run(main=main, argv=[sys.argv[0]])
