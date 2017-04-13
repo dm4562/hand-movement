@@ -149,10 +149,10 @@ def load_saved_graph():
     """
     with tf.Session() as sess:
         with gfile.FastGFile(FLAGS['output_graph'], 'rb') as file:
-            graph_def = ts.GraphDef()
+            graph_def = tf.GraphDef()
             graph_def.ParseFromString(file.read())
 
-    final_weights_tensor = tf.import_graph_def(graph_def, name='', [FLAGS['final_tensor_name']])
+    final_weights_tensor = tf.import_graph_def(graph_def, name='', return_elements=[FLAGS['final_tensor_name']])
     return sess.graph, final_weights_tensor
 
 
@@ -166,7 +166,7 @@ def main(_):
 
     # Make sure all the images are cached
     with tf.Session(graph=bgraph) as sess:
-        train.cache_bottlenecks(sess, image_dict['test'], FLAGS[
+        train.cache_bottlenecks(sess, image_dict, FLAGS[
             'bottleneck_dir'], jpeg_data_tensor, bottleneck_tensor)
 
     tgraph, output_tensor = load_saved_graph()
