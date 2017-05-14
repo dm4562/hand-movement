@@ -43,7 +43,8 @@ FLAGS = {
     'learning_rate': 0.001,
     'final_tensor_name': 'final_result',
     'output_graph': '/data/muscle_rec/output_graph.pb',
-    'output_labels': '/data/muscle_rec/output_labels.txt'
+    'output_labels': '/data/muscle_rec/output_labels.txt',
+    'save_model_path': '/data/muscle_rec/testmodel.ckpt'
 }
 
 data_folders = ['hand1', 'hand2']
@@ -457,12 +458,16 @@ def add_evaluation_step(result_tensor, ground_truth_tensor):
     return evaluation_step, diff
 
 
+# def test_model(test_input, )
+
+
 def main(_):
     # Set up the pre-trained graph.
     maybe_download_and_extract()
     graph, bottleneck_tensor, jpeg_data_tensor, resized_image_tensor = create_inception_graph()
 
     image_dict = get_data_labels(ROOT_IMAGE_DIRECTORY)
+    saver = tf.train.Saver()
     sess = tf.Session()
 
     # Make sure that we've calculated the 'bottleneck' image summaries and cached them
@@ -557,6 +562,10 @@ def main(_):
 
     with gfile.FastGFile(FLAGS['output_labels'], 'w') as f:
         f.write('\n'.join(image_dict.keys()) + '\n')
+
+    save_path = saver.save(sess, FLAGS['save_model_path'])
+
+    sess.close()
 
 if __name__ == '__main__':
     tf.app.run(main=main, argv=[sys.argv[0]])
